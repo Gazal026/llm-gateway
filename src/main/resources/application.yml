@@ -1,0 +1,116 @@
+spring:
+  application:
+    name: llm-gateway
+  config:
+    # Lets local runs pick up API keys from a git-ignored .env file (see .env.example).
+    import: optional:file:.env[.properties]
+  jackson:
+    # OpenAI and Anthropic both use snake_case JSON, so the whole app does too.
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:gateway}
+    username: ${DB_USER:gateway}
+    password: ${DB_PASSWORD:gateway}
+  flyway:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:gateway}
+    user: ${DB_USER:gateway}
+    password: ${DB_PASSWORD:gateway}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+gateway:
+  # Key for the /admin API (create tenants, issue keys, usage reports). Override in every real environment.
+  admin-key: ${GATEWAY_ADMIN_KEY:admin-dev-key}
+
+  # A tenant + API key created at startup so you can call the gateway immediately in local dev.
+  bootstrap:
+    api-key: ${GATEWAY_BOOTSTRAP_KEY:sk-dev-local}
+    tenant-name: default
+    requests-per-minute: ${GATEWAY_BOOTSTRAP_RPM:120}
+    daily-token-budget: ${GATEWAY_BOOTSTRAP_BUDGET:500000}
+
+  cors-allowed-origins: ${GATEWAY_CORS_ORIGINS:http://localhost:4200}
+
+  defaults:
+    # Used when the client does not send max_tokens (Anthropic requires it; budgets need an estimate).
+    max-tokens: 1024
+
+  timeouts:
+    first-token: 20s   # streaming: max wait for the first chunk before failing over
+    idle: 30s          # streaming: max gap between chunks
+    total: 120s        # non-streaming: max time for the whole response
+
+  circuit-breaker:
+    failure-rate-threshold: 50
+    sliding-window-size: 20
+    minimum-number-of-calls: 10
+    wait-duration-in-open-state: 30s
+
+  providers:
+    mock:
+      type: mock
+      tokens-per-second: 40
+    mock-fast:
+      type: mock
+      tokens-per-second: 100000     # effectively no generation delay; for load-testing gateway overhead
+    flaky-mock:
+      type: mock
+      failure-rate: 0.5              # fails half the time; demonstrates fallback + circuit breaking
+      tokens-per-second: 40
+    openai:
+      type: openai
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+      api-key: ${OPENAI_API_KEY:}
+    anthropic:
+      type: anthropic
+      base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+      api-key: ${ANTHROPIC_API_KEY:}
+    ollama:
+      type: openai                   # Ollama exposes an OpenAI-compatible API
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434/v1}
+
+  # Model aliases clients can request. Targets are tried in order; providers without credentials are skipped.
+  # Clients can also bypass aliases with "<provider>/<model>", e.g. "openai/gpt-5".
+  routes:
+    fast:
+      - { provider: anthropic, model: claude-haiku-5-5 }
+      - { provider: openai, model: gpt-5-mini }
+      - { provider: ollama, model: llama3.2 }
+    smart:
+      - { provider: anthropic, model: claude-sonnet-5-5 }
+      - { provider: openai, model: gpt-5 }
+    local:
+      - { provider: ollama, model: llama3.2 }
+    mock:
+      - { provider: mock, model: mock-1 }
+    mock-fast:
+      - { provider: mock-fast, model: mock-1 }
+    chaos:
+      - { provider: flaky-mock, model: mock-1 }
+      - { provider: mock, model: mock-1 }
+
+  # USD per 1M tokens, keyed by upstream model.
+  # EXAMPLE VALUES ONLY: check each provider's pricing page before relying on cost reports.
+  pricing:
+    claude-haiku-5-5: { input-per-million: 1.00, output-per-million: 5.00 }
+    claude-sonnet-5-5: { input-per-million: 3.00, output-per-million: 15.00 }
+    gpt-5: { input-per-million: 1.25, output-per-million: 10.00 }
+    gpt-5-mini: { input-per-million: 0.25, output-per-million: 2.00 }
+    mock-1: { input-per-million: 0.50, output-per-million: 1.50 }
+
+logging:
+  level:
+    dev.llmgateway: INFO

@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: llm-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      # 'gateway' when it runs in compose, host.docker.internal when you run it with mvn on your machine.
+      - targets: ["gateway:8080", "host.docker.internal:8080"]
