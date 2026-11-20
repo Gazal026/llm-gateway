@@ -1,5 +1,5 @@
 # LLM Gateway
-![CI](https://github.com/YOUR-USERNAME/llm-gateway/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Gazal026/llm-gateway/actions/workflows/ci.yml/badge.svg)
 
 A self-hosted gateway that sits between your applications and LLM providers (OpenAI, Anthropic, local Ollama models).
 Apps call **one OpenAI-compatible endpoint**. The gateway handles routing, failover, rate limits, token budgets
